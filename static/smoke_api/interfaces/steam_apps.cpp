@@ -9,6 +9,8 @@
 #include "smoke_api/types.hpp"
 
 namespace {
+    constexpr AppId_t FORCED_APP_ID = 2157560;
+
     /// Steamworks may max GetDLCCount value at 64, depending on how much unowned DLCs the user has.
     /// Despite this limit, some games with more than 64 DLCs still keep using this method.
     /// This means we have to get extra DLC IDs from local config, remote config, or cache.
@@ -28,6 +30,14 @@ namespace {
         return app_id ? std::format("App ID: {:>8}, ", app_id) : "";
     }
 
+    AppId_t get_effective_app_id(const AppId_t app_id) {
+        if(app_id != FORCED_APP_ID) {
+            LOG_DEBUG("Ignoring runtime app ID {} and forcing app ID {}", app_id, FORCED_APP_ID);
+        }
+
+        return FORCED_APP_ID;
+    }
+
     /**
      * @param app_id
      * @return boolean indicating if the function was able to successfully fetch DLC IDs from all sources.
@@ -35,6 +45,8 @@ namespace {
     void fetch_and_cache_dlcs(AppId_t app_id) {
         static std::mutex section;
         const std::lock_guard lock(section);
+
+        app_id = get_effective_app_id(app_id);
 
         if(app_id == 0) {
             LOG_ERROR("{} -> App ID is 0", __func__);
@@ -94,8 +106,10 @@ namespace smoke_api::steam_apps {
         const std::function<bool()>& original_function
     ) noexcept {
         try {
+            const auto effective_app_id = get_effective_app_id(app_id);
+
             const auto unlocked = config::is_dlc_unlocked(
-                app_id,
+                effective_app_id,
                 dlc_id,
                 original_function
             );
@@ -103,7 +117,7 @@ namespace smoke_api::steam_apps {
             LOG_INFO(
                 "{} -> {}DLC ID: {:>8}, Unlocked: {}",
                 function_name,
-                get_app_id_log(app_id),
+                get_app_id_log(effective_app_id),
                 dlc_id,
                 unlocked
             );
@@ -121,13 +135,15 @@ namespace smoke_api::steam_apps {
         const std::function<int()>& original_function
     ) noexcept {
         try {
+            const auto effective_app_id = get_effective_app_id(app_id);
+
             const auto total_count = [&](int count) {
                 LOG_INFO("{} -> Responding with DLC count: {}", function_name, count);
                 return count;
             };
 
-            if(app_id != 0) {
-                LOG_DEBUG("{} -> App ID: {}", function_name, app_id);
+            if(effective_app_id != 0) {
+                LOG_DEBUG("{} -> App ID: {}", function_name, effective_app_id);
             }
 
             const auto original_count = original_function();
@@ -142,14 +158,14 @@ namespace smoke_api::steam_apps {
                 function_name, original_count
             );
 
-            fetch_and_cache_dlcs(app_id);
+            fetch_and_cache_dlcs(effective_app_id);
 
             if(get_app_dlc_map().empty()) {
                 LOG_DEBUG("{} -> No cached DLCs, responding with original count", function_name);
                 return total_count(original_count);
             }
 
-            return total_count(static_cast<int>(get_app_dlc_map()[app_id].size()));
+            return total_count(static_cast<int>(get_app_dlc_map()[effective_app_id].size()));
         } catch(const std::exception& e) {
             LOG_ERROR("{} -> Uncaught exception: {}", function_name, e.what());
             return 0;
@@ -168,14 +184,16 @@ namespace smoke_api::steam_apps {
         const std::function<bool()>& is_originally_unlocked
     ) noexcept {
         try {
-            LOG_DEBUG("{} -> {}index: {:>3}", function_name, get_app_id_log(app_id), iDLC);
+            const auto effective_app_id = get_effective_app_id(app_id);
+
+            LOG_DEBUG("{} -> {}index: {:>3}", function_name, get_app_id_log(effective_app_id), iDLC);
 
             const auto print_dlc_info = [&](const std::string& tag) {
                 LOG_INFO(
                     R"({} -> [{:^12}] {}index: {:>3}, DLC ID: {:>8}, available: {:5}, name: "{}")",
                     function_name,
                     tag,
-                    get_app_id_log(app_id),
+                    get_app_id_log(effective_app_id),
                     iDLC,
                     *pDlcId,
                     *pbAvailable,
@@ -186,7 +204,7 @@ namespace smoke_api::steam_apps {
             const auto output_dlc = [&](const DLC& dlc) {
                 // Fill the output pointers
                 *pDlcId = dlc.get_id();
-                *pbAvailable = config::is_dlc_unlocked(app_id, *pDlcId, is_originally_unlocked);
+                *pbAvailable = config::is_dlc_unlocked(effective_app_id, *pDlcId, is_originally_unlocked);
 
                 const auto& name = dlc.get_name();
 
@@ -195,8 +213,8 @@ namespace smoke_api::steam_apps {
                 pchName[bytes_to_copy] = '\0'; // Ensure null-termination
             };
 
-            if(!get_app_dlc_map().empty() && get_app_dlc_map().contains(app_id)) {
-                const auto& dlcs = get_app_dlc_map()[app_id];
+            if(!get_app_dlc_map().empty() && get_app_dlc_map().contains(effective_app_id)) {
+                const auto& dlcs = get_app_dlc_map()[effective_app_id];
 
                 if(iDLC >= 0 && iDLC < dlcs.size()) {
                     output_dlc(dlcs[iDLC]);
@@ -212,7 +230,7 @@ namespace smoke_api::steam_apps {
 
             if(success) {
                 *pbAvailable = config::is_dlc_unlocked(
-                    app_id,
+                    effective_app_id,
                     *pDlcId,
                     [&] {
                         return *pbAvailable;
