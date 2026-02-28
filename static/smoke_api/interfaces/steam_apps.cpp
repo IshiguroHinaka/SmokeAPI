@@ -149,14 +149,24 @@ namespace smoke_api::steam_apps {
             const auto original_count = original_function();
             LOG_DEBUG("{} -> Original DLC count: {}", function_name, original_count);
 
-            if(original_count < MAX_DLC) {
+            const auto should_fetch_injected_dlcs =
+                app_id != effective_app_id || original_count >= MAX_DLC;
+
+            if(!should_fetch_injected_dlcs) {
                 return total_count(original_count);
             }
 
-            LOG_DEBUG(
-                "{} -> Game has {} or more DLCs. Fetching DLCs from remote sources.",
-                function_name, original_count
-            );
+            if(app_id != effective_app_id) {
+                LOG_DEBUG(
+                    "{} -> Runtime App ID {} differs from forced App ID {}. Fetching forced DLC list.",
+                    function_name, app_id, effective_app_id
+                );
+            } else {
+                LOG_DEBUG(
+                    "{} -> Game has {} or more DLCs. Fetching DLCs from remote sources.",
+                    function_name, original_count
+                );
+            }
 
             fetch_and_cache_dlcs(effective_app_id);
 

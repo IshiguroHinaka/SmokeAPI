@@ -55,6 +55,8 @@
 namespace {
     namespace kb = koalabox;
 
+    constexpr AppId_t FORCED_APP_ID = 2157560;
+
     void* original_steamapi_handle = nullptr;
     bool is_hook_mode;
 
@@ -352,6 +354,11 @@ namespace smoke_api {
         static AppId_t cached_app_id = 0;
         if(cached_app_id) {
             return cached_app_id;
+        }
+
+        if(FORCED_APP_ID != 0) {
+            LOG_INFO("Ignoring runtime App ID and forcing App ID {}", FORCED_APP_ID);
+            return cached_app_id = FORCED_APP_ID;
         }
 
         LOG_DEBUG("No cached App ID found. Searching in environment variables.");
